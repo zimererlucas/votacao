@@ -6,6 +6,7 @@ import '../models/eleicao.dart';
 import '../models/candidato.dart';
 import 'user_registration_screen.dart';
 import 'election_creation_screen.dart';
+import 'nfc_config_screen.dart';
 
 class MainVotingScreen extends StatefulWidget {
   final String userRole;
@@ -187,6 +188,27 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                   ),
                 ],
               ),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.credit_card,
+                color: Theme.of(context).colorScheme.primary,
+              ),
+              title: Text(
+                'Configurar Cartão',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.primary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+              onTap: () {
+                Navigator.of(context).pop(); // Close the drawer
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (context) => const NfcConfigScreen(),
+                  ),
+                );
+              },
             ),
             if (widget.userRole == 'Administrador') ...[
               ListTile(

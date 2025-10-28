@@ -1,0 +1,3 @@
+- [ ] Update imports in nfc_config_screen.dart to include 'dart:convert' and 'package:nfc_manager/ndef.dart'
+- [ ] Modify onDiscovered callback to properly decode NDEF text records
+- [ ] Add stopSession() in the onError callback
