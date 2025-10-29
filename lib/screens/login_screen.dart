@@ -66,7 +66,7 @@ class _LoginScreenState extends State<LoginScreen> {
       });
     } catch (e) {
       setState(() {
-        _errorMessage = 'Erro ao fazer login. Tente novamente.';
+        _errorMessage = 'Erro ao fazer login. Tente novamente. ${e.toString()}';
       });
     } finally {
       if (mounted) {

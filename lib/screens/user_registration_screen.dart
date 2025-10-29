@@ -34,31 +34,25 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // Create user account with Supabase Auth
-      final authResponse = await Supabase.instance.client.auth.signUp(
-        email: _emailController.text.trim(),
-        password: _passwordController.text,
+      // Call the Supabase function to create user
+      await Supabase.instance.client.rpc(
+        'criar_utilizador',
+        params: {
+          'p_email': _emailController.text.trim(),
+          'p_password': _passwordController.text,
+          'p_nome_completo': _nomeCompletoController.text.trim(),
+          'p_cargo': _selectedRole.toLowerCase(),
+        },
       );
 
-      if (authResponse.user != null) {
-        // Insert user profile into perfis table
-        await Supabase.instance.client.from('perfis').insert({
-          'id': authResponse.user!.id,
-          'email': _emailController.text.trim(),
-          'nome_completo': _nomeCompletoController.text.trim(),
-          'cargo': _selectedRole,
-          'criado_em': DateTime.now().toIso8601String(),
-        });
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Utilizador registado com sucesso!'),
-              backgroundColor: Colors.green,
-            ),
-          );
-          Navigator.of(context).pop(); // Return to previous screen
-        }
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Utilizador registado com sucesso!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+        Navigator.of(context).pop(); // Return to previous screen
       }
     } catch (error) {
       if (mounted) {

@@ -1,9 +1,9 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/eleicao.dart';
 import '../models/candidato.dart';
+import '../services/voting_service.dart';
 import 'user_registration_screen.dart';
 import 'election_creation_screen.dart';
 import 'nfc_config_screen.dart';
@@ -23,11 +23,15 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
   Future<List<Candidato>>? _candidatosFuture;
   Timer? _timer;
   Duration _timeRemaining = Duration.zero;
+  final VotingService _votingService = VotingService();
+  String? _token;
+  bool _hasToken = false;
 
   @override
   void initState() {
     super.initState();
     _eleicaoFuture = _fetchEleicaoAtiva();
+    _checkToken();
   }
 
   @override
@@ -100,20 +104,78 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
     return candidatos;
   }
 
-  void _vote() {
+  Future<void> _checkToken() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      final eleicao = await _eleicaoFuture;
+      if (eleicao != null) {
+        final hasRights = await _votingService.hasVotingRights(
+          user.id,
+          eleicao.id,
+        );
+        if (hasRights) {
+          // Fetch the token from the database
+          final tokenResponse = await Supabase.instance.client
+              .from('tokens')
+              .select('token')
+              .eq('eleicao_id', eleicao.id)
+              .eq('usado', false)
+              .limit(1);
+          if (tokenResponse.isNotEmpty) {
+            setState(() {
+              _token = tokenResponse[0]['token'];
+              _hasToken = true;
+            });
+          } else {
+            setState(() {
+              _hasToken = false;
+            });
+          }
+        } else {
+          setState(() {
+            _hasToken = false;
+          });
+        }
+      }
+    }
+  }
+
+  void _vote() async {
     if (_selectedCandidatoId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a candidate to vote for.')),
       );
       return;
     }
-    // TODO: Implement actual voting logic (save to database)
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Vote submitted successfully!')),
-    );
-    setState(() {
-      _selectedCandidatoId = null; // Reset selection after voting
-    });
+
+    if (!_hasToken) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'You need a voting token to vote. Please request one first.',
+          ),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final eleicao = await _eleicaoFuture;
+      if (eleicao != null) {
+        await _votingService.votar(_token!, eleicao.id, _selectedCandidatoId!);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Vote submitted successfully!')),
+        );
+        setState(() {
+          _selectedCandidatoId = null; // Reset selection after voting
+          _hasToken = false; // Token used
+        });
+      }
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error submitting vote: $e')));
+    }
   }
 
   void _logout() {
@@ -280,7 +342,30 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
           } else if (snapshot.hasError) {
             return Center(child: Text('Error: ${snapshot.error}'));
           } else if (!snapshot.hasData || snapshot.data == null) {
-            return const Center(child: Text('No active election found.'));
+            if (widget.userRole == 'Administrador') {
+              return Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text('Não está a decorrer nenhuma eleição'),
+                    const SizedBox(height: 20),
+                    ElevatedButton(
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder:
+                                (context) => const ElectionCreationScreen(),
+                          ),
+                        );
+                      },
+                      child: const Text('Criar eleição'),
+                    ),
+                  ],
+                ),
+              );
+            } else {
+              return const Center(child: Text('No active election found.'));
+            }
           } else {
             final eleicao = snapshot.data!;
             // Start timer when election data is loaded
