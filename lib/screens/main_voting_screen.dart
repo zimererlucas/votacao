@@ -6,6 +6,7 @@ import '../models/candidato.dart';
 import '../services/voting_service.dart';
 import 'user_registration_screen.dart';
 import 'election_creation_screen.dart';
+import 'election_management_screen.dart';
 import 'nfc_config_screen.dart';
 
 class MainVotingScreen extends StatefulWidget {
@@ -72,20 +73,14 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
 
   Future<Eleicao?> _fetchEleicaoAtiva() async {
     final now = DateTime.now();
-    print('Current date: $now');
     final response = await Supabase.instance.client
         .from('eleicoes')
         .select('*')
         .lte('data_comeco', now.toIso8601String())
         .gte('data_fim', now.toIso8601String())
         .limit(1);
-    print('Supabase response: $response');
     if (response.isNotEmpty) {
-      final eleicao = Eleicao.fromJson(response[0]);
-      print(
-        'Active election: ${eleicao.titulo}, Start: ${eleicao.dataComeco}, End: ${eleicao.dataFim}',
-      );
-      return eleicao;
+      return Eleicao.fromJson(response[0]);
     }
     return null;
   }
@@ -95,13 +90,9 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
         .from('candidatos')
         .select('*')
         .eq('eleicao_id', eleicaoId);
-    print('Candidatos response: $response');
-    final candidatos =
-        (response as List<dynamic>)
-            .map((json) => Candidato.fromJson(json))
-            .toList();
-    print('Parsed candidatos: ${candidatos.length} items');
-    return candidatos;
+    return (response as List<dynamic>)
+        .map((json) => Candidato.fromJson(json))
+        .toList();
   }
 
   Future<void> _checkToken() async {
@@ -113,24 +104,25 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
           user.id,
           eleicao.id,
         );
+        if (!mounted) return;
+
         if (hasRights) {
-          // Fetch the token from the database
           final tokenResponse = await Supabase.instance.client
               .from('tokens')
               .select('token')
               .eq('eleicao_id', eleicao.id)
               .eq('usado', false)
               .limit(1);
-          if (tokenResponse.isNotEmpty) {
-            setState(() {
+          if (!mounted) return;
+
+          setState(() {
+            if (tokenResponse.isNotEmpty) {
               _token = tokenResponse[0]['token'];
               _hasToken = true;
-            });
-          } else {
-            setState(() {
+            } else {
               _hasToken = false;
-            });
-          }
+            }
+          });
         } else {
           setState(() {
             _hasToken = false;
@@ -140,10 +132,12 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
     }
   }
 
-  void _vote() async {
+  Future<void> _vote() async {
+    if (!mounted) return;
+
     if (_selectedCandidatoId == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a candidate to vote for.')),
+        const SnackBar(content: Text('Por favor, selecione um candidato')),
       );
       return;
     }
@@ -151,9 +145,7 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
     if (!_hasToken) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'You need a voting token to vote. Please request one first.',
-          ),
+          content: Text('Por favor, utilize o seu cartão primeiro'),
         ),
       );
       return;
@@ -161,25 +153,32 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
 
     try {
       final eleicao = await _eleicaoFuture;
-      if (eleicao != null) {
+      if (!mounted) return;
+
+      if (eleicao != null && _token != null) {
         await _votingService.votar(_token!, eleicao.id, _selectedCandidatoId!);
+        if (!mounted) return;
+
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Vote submitted successfully!')),
+          const SnackBar(content: Text('Voto registado com sucesso!')),
         );
         setState(() {
-          _selectedCandidatoId = null; // Reset selection after voting
-          _hasToken = false; // Token used
+          _selectedCandidatoId = null;
+          _hasToken = false;
         });
       }
     } catch (e) {
+      if (!mounted) return;
+
       ScaffoldMessenger.of(
         context,
-      ).showSnackBar(SnackBar(content: Text('Error submitting vote: $e')));
+      ).showSnackBar(SnackBar(content: Text('Erro ao submeter o voto: $e')));
     }
   }
 
-  void _logout() {
-    Supabase.instance.client.auth.signOut();
+  Future<void> _logout() async {
+    await Supabase.instance.client.auth.signOut();
+    if (!mounted) return;
     Navigator.of(context).pushReplacementNamed('/');
   }
 
@@ -245,7 +244,7 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                       color: Theme.of(
                         context,
-                      ).colorScheme.onPrimaryContainer.withOpacity(0.8),
+                      ).colorScheme.onPrimaryContainer.withAlpha(204),
                     ),
                   ),
                 ],
@@ -264,7 +263,7 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                 ),
               ),
               onTap: () {
-                Navigator.of(context).pop(); // Close the drawer
+                Navigator.of(context).pop();
                 Navigator.of(context).push(
                   MaterialPageRoute(
                     builder: (context) => const NfcConfigScreen(),
@@ -286,7 +285,7 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                   ),
                 ),
                 onTap: () {
-                  Navigator.of(context).pop(); // Close the drawer
+                  Navigator.of(context).pop();
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => const ElectionCreationScreen(),
@@ -307,10 +306,31 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                   ),
                 ),
                 onTap: () {
-                  Navigator.of(context).pop(); // Close the drawer
+                  Navigator.of(context).pop();
                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (context) => const UserRegistrationScreen(),
+                    ),
+                  );
+                },
+              ),
+              ListTile(
+                leading: Icon(
+                  Icons.manage_accounts,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+                title: Text(
+                  'Gerir Eleições',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.primary,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                onTap: () {
+                  Navigator.of(context).pop();
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (context) => const ElectionManagementScreen(),
                     ),
                   );
                 },
@@ -326,220 +346,234 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                 'Sair',
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-              onTap: () {
-                Navigator.of(context).pop(); // Close the drawer
-                _logout();
+              onTap: () async {
+                Navigator.of(context).pop();
+                await _logout();
               },
             ),
           ],
         ),
       ),
-      body: FutureBuilder<Eleicao?>(
-        future: _eleicaoFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          } else if (snapshot.hasError) {
-            return Center(child: Text('Error: ${snapshot.error}'));
-          } else if (!snapshot.hasData || snapshot.data == null) {
-            if (widget.userRole == 'Administrador') {
-              return Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('Não está a decorrer nenhuma eleição'),
-                    const SizedBox(height: 20),
-                    ElevatedButton(
-                      onPressed: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder:
-                                (context) => const ElectionCreationScreen(),
+      body: RefreshIndicator(
+        onRefresh: () async {
+          setState(() {
+            _candidatosFuture = null;
+            _eleicaoFuture = _fetchEleicaoAtiva();
+          });
+          await _eleicaoFuture;
+        },
+        child: SingleChildScrollView(
+          physics: const AlwaysScrollableScrollPhysics(),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 600),
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            child: FutureBuilder<Eleicao?>(
+              future: _eleicaoFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                } else if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                } else if (!snapshot.hasData || snapshot.data == null) {
+                  if (widget.userRole == 'Administrador') {
+                    return Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('Não está a decorrer nenhuma eleição'),
+                          const SizedBox(height: 20),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder:
+                                      (context) =>
+                                          const ElectionCreationScreen(),
+                                ),
+                              );
+                            },
+                            child: const Text('Criar eleição'),
                           ),
-                        );
-                      },
-                      child: const Text('Criar eleição'),
-                    ),
-                  ],
-                ),
-              );
-            } else {
-              return const Center(child: Text('No active election found.'));
-            }
-          } else {
-            final eleicao = snapshot.data!;
-            // Start timer when election data is loaded
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              _startTimer(eleicao.dataFim);
-            });
-
-            return Column(
-              children: [
-                Card(
-                  margin: const EdgeInsets.all(16.0),
-                  elevation: 8,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Container(
-                    padding: const EdgeInsets.all(20.0),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Theme.of(context).colorScheme.primaryContainer,
-                          Theme.of(
-                            context,
-                          ).colorScheme.primaryContainer.withOpacity(0.8),
                         ],
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
                       ),
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Column(
-                      children: [
-                        Text(
-                          eleicao.titulo,
-                          style: Theme.of(
-                            context,
-                          ).textTheme.headlineMedium?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color:
-                                Theme.of(
-                                  context,
-                                ).colorScheme.onPrimaryContainer,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                        if (eleicao.descricao != null) ...[
-                          const SizedBox(height: 12),
-                          Text(
-                            eleicao.descricao!,
-                            style: Theme.of(
-                              context,
-                            ).textTheme.bodyLarge?.copyWith(
-                              color: Theme.of(
+                    );
+                  } else {
+                    return const Center(
+                      child: Text('Não há eleições ativas no momento'),
+                    );
+                  }
+                }
+
+                final eleicao = snapshot.data!;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _startTimer(eleicao.dataFim);
+                });
+
+                if (_candidatosFuture == null) {
+                  _candidatosFuture = _fetchCandidatos(eleicao.id);
+                }
+                return Column(
+                  children: [
+                    Card(
+                      margin: const EdgeInsets.all(16.0),
+                      elevation: 8,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                      child: Container(
+                        padding: const EdgeInsets.all(20.0),
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            colors: [
+                              Theme.of(context).colorScheme.primaryContainer,
+                              Theme.of(
                                 context,
-                              ).colorScheme.onPrimaryContainer.withOpacity(0.9),
-                            ),
-                            textAlign: TextAlign.center,
+                              ).colorScheme.primaryContainer.withAlpha(204),
+                            ],
+                            begin: Alignment.topLeft,
+                            end: Alignment.bottomRight,
                           ),
-                        ],
-                        const SizedBox(height: 16),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Theme.of(context).colorScheme.primary,
-                            borderRadius: BorderRadius.circular(20),
-                          ),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(
-                                Icons.timer,
-                                color: Theme.of(context).colorScheme.onPrimary,
-                                size: 20,
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                        child: Column(
+                          children: [
+                            Text(
+                              eleicao.titulo,
+                              style: Theme.of(
+                                context,
+                              ).textTheme.headlineMedium?.copyWith(
+                                fontWeight: FontWeight.bold,
+                                color:
+                                    Theme.of(
+                                      context,
+                                    ).colorScheme.onPrimaryContainer,
                               ),
-                              const SizedBox(width: 8),
+                              textAlign: TextAlign.center,
+                            ),
+                            if (eleicao.descricao != null) ...[
+                              const SizedBox(height: 12),
                               Text(
-                                _formatDuration(_timeRemaining),
+                                eleicao.descricao!,
                                 style: Theme.of(
                                   context,
-                                ).textTheme.titleMedium?.copyWith(
-                                  color:
-                                      Theme.of(context).colorScheme.onPrimary,
-                                  fontWeight: FontWeight.bold,
-                                  fontFamily: 'monospace',
+                                ).textTheme.bodyLarge?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onPrimaryContainer
+                                      .withAlpha(230),
                                 ),
+                                textAlign: TextAlign.center,
                               ),
                             ],
-                          ),
+                            const SizedBox(height: 16),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 8,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Theme.of(context).colorScheme.primary,
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(
+                                    Icons.timer,
+                                    color:
+                                        Theme.of(context).colorScheme.onPrimary,
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    _formatDuration(_timeRemaining),
+                                    style: Theme.of(
+                                      context,
+                                    ).textTheme.titleMedium?.copyWith(
+                                      color:
+                                          Theme.of(
+                                            context,
+                                          ).colorScheme.onPrimary,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Tempo restante para votar',
-                          style: Theme.of(
-                            context,
-                          ).textTheme.bodySmall?.copyWith(
-                            color: Theme.of(
-                              context,
-                            ).colorScheme.onPrimaryContainer.withOpacity(0.7),
-                          ),
-                        ),
-                      ],
+                      ),
                     ),
-                  ),
-                ),
-                Expanded(
-                  child: FutureBuilder<List<Candidato>>(
-                    future: _candidatosFuture ??= _fetchCandidatos(eleicao.id),
-                    builder: (context, candidatosSnapshot) {
-                      if (candidatosSnapshot.connectionState ==
-                          ConnectionState.waiting) {
-                        return const Center(child: CircularProgressIndicator());
-                      } else if (candidatosSnapshot.hasError) {
-                        return Center(
-                          child: Text(
-                            'Error loading candidates: ${candidatosSnapshot.error}',
-                          ),
-                        );
-                      } else if (!candidatosSnapshot.hasData ||
-                          candidatosSnapshot.data!.isEmpty) {
-                        return const Center(
-                          child: Text('No candidates found.'),
-                        );
-                      } else {
+                    FutureBuilder<List<Candidato>>(
+                      future: _candidatosFuture,
+                      builder: (context, candidatosSnapshot) {
+                        if (candidatosSnapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                            child: CircularProgressIndicator(),
+                          );
+                        } else if (candidatosSnapshot.hasError) {
+                          return Center(
+                            child: Text('Error: ${candidatosSnapshot.error}'),
+                          );
+                        } else if (!candidatosSnapshot.hasData ||
+                            candidatosSnapshot.data!.isEmpty) {
+                          return const Center(
+                            child: Text('Nenhum candidato encontrado'),
+                          );
+                        }
+
                         final candidatos = candidatosSnapshot.data!;
                         return Column(
                           children: [
-                            Expanded(
-                              child: ListView.builder(
-                                itemCount: candidatos.length,
-                                itemBuilder: (context, index) {
-                                  final candidato = candidatos[index];
-                                  final isSelected =
-                                      _selectedCandidatoId == candidato.id;
-                                  return Card(
-                                    margin: const EdgeInsets.all(8.0),
-                                    color:
-                                        isSelected
-                                            ? Theme.of(
-                                              context,
-                                            ).colorScheme.primaryContainer
-                                            : null,
-                                    child: ListTile(
-                                      title: Text(
-                                        candidato.nomeCompleto,
-                                        style: TextStyle(
-                                          fontWeight:
-                                              isSelected
-                                                  ? FontWeight.bold
-                                                  : FontWeight.normal,
-                                        ),
+                            ListView.builder(
+                              shrinkWrap: true,
+                              physics: const NeverScrollableScrollPhysics(),
+                              itemCount: candidatos.length,
+                              itemBuilder: (context, index) {
+                                final candidato = candidatos[index];
+                                final isSelected =
+                                    _selectedCandidatoId == candidato.id;
+                                return Card(
+                                  margin: const EdgeInsets.symmetric(
+                                    vertical: 4.0,
+                                    horizontal: 8.0,
+                                  ),
+                                  color:
+                                      isSelected
+                                          ? Theme.of(
+                                            context,
+                                          ).colorScheme.primaryContainer
+                                          : null,
+                                  child: ListTile(
+                                    title: Text(
+                                      candidato.nomeCompleto,
+                                      style: TextStyle(
+                                        fontWeight:
+                                            isSelected
+                                                ? FontWeight.bold
+                                                : FontWeight.normal,
                                       ),
-                                      leading: Radio<String>(
-                                        value: candidato.id,
-                                        groupValue: _selectedCandidatoId,
-                                        onChanged: (value) {
-                                          setState(() {
-                                            _selectedCandidatoId = value;
-                                          });
-                                        },
-                                      ),
-                                      onTap: () {
+                                    ),
+                                    leading: Radio<String>(
+                                      value: candidato.id,
+                                      groupValue: _selectedCandidatoId,
+                                      onChanged: (value) {
                                         setState(() {
-                                          _selectedCandidatoId = candidato.id;
+                                          _selectedCandidatoId = value;
                                         });
                                       },
                                     ),
-                                  );
-                                },
-                              ),
+                                    onTap: () {
+                                      setState(() {
+                                        _selectedCandidatoId = candidato.id;
+                                      });
+                                    },
+                                  ),
+                                );
+                              },
                             ),
-                            Container(
+                            Padding(
                               padding: const EdgeInsets.all(16.0),
                               child: SizedBox(
                                 width: double.infinity,
@@ -555,7 +589,7 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                                         Theme.of(context).colorScheme.onPrimary,
                                   ),
                                   child: const Text(
-                                    'Vote',
+                                    'Votar',
                                     style: TextStyle(fontSize: 18.0),
                                   ),
                                 ),
@@ -563,14 +597,14 @@ class _MainVotingScreenState extends State<MainVotingScreen> {
                             ),
                           ],
                         );
-                      }
-                    },
-                  ),
-                ),
-              ],
-            );
-          }
-        },
+                      },
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }
