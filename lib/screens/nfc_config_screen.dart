@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:nfc_manager/nfc_manager.dart';
-
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 class NfcConfigScreen extends StatefulWidget {
@@ -31,6 +30,10 @@ class _NfcConfigScreenState extends State<NfcConfigScreen> {
               .select('tag_nfc')
               .eq('id', user.id)
               .single();
+
+      debugPrint('Usuário atual: ${user.id}');
+      debugPrint('Tag atual do Supabase: ${response['tag_nfc']}');
+
       setState(() {
         _currentTag = response['tag_nfc'];
         _hasTag = _currentTag != null;
@@ -38,61 +41,83 @@ class _NfcConfigScreenState extends State<NfcConfigScreen> {
     }
   }
 
+  // Função auxiliar para converter lista de bytes em HEX
+  String toHexString(List<int> bytes) {
+    return bytes.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':');
+  }
+
   Future<void> _startNfcReading() async {
+    if (_isReading) return;
+
+    debugPrint('Iniciando leitura NFC...');
     setState(() {
       _isReading = true;
       _tagId = null;
     });
 
     try {
-      bool isAvailable = await NfcManager.instance.isAvailable();
+      final isAvailable = await NfcManager.instance.isAvailable();
+      debugPrint('NFC disponível? $isAvailable');
+
       if (!isAvailable) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('NFC não está disponível neste dispositivo.'),
           ),
         );
-        setState(() {
-          _isReading = false;
-        });
+        setState(() => _isReading = false);
         return;
       }
 
-      NfcManager.instance.startSession(
-        pollingOptions: const {},
-        onDiscovered: (NfcTag tag) async {
-          String hexCode = 'Código Hex não encontrado';
+      await NfcManager.instance.stopSession(); // garante sessão limpa
 
-          // Find the identifier in the tag data
-          (tag.data as Map<String, dynamic>).forEach((key, value) {
-            if (value is Map) {
-              value.forEach((subKey, subValue) {
-                if (subKey == 'identifier' && subValue is List<int>) {
-                  hexCode = subValue
-                      .map((e) => e.toRadixString(16).padLeft(2, '0'))
-                      .join(':');
+      NfcManager.instance.startSession(
+        pollingOptions: {NfcPollingOption.iso14443, NfcPollingOption.iso15693},
+        onDiscovered: (NfcTag tag) async {
+          debugPrint('Tag descoberta: $tag');
+
+          try {
+            String hexCode = 'Código Hex não encontrado';
+
+            if (tag.data is Map) {
+              debugPrint('tag.data é Map, iniciando parsing...');
+              final data = Map<String, dynamic>.from(tag.data as Map);
+              data.forEach((key, value) {
+                debugPrint('Chave principal: $key -> $value');
+                if (value is Map) {
+                  value.forEach((subKey, subValue) {
+                    debugPrint('SubKey: $subKey -> $subValue');
+                    if (subKey == 'identifier' && subValue is List<int>) {
+                      hexCode = toHexString(subValue);
+                      debugPrint('HEX encontrado: $hexCode');
+                    }
+                  });
                 }
               });
+            } else {
+              debugPrint('tag.data não é Map!');
             }
-          });
 
-          setState(() {
-            _tagId = hexCode;
-          });
-
-          NfcManager.instance.stopSession();
-          setState(() {
-            _isReading = false;
-          });
+            setState(() => _tagId = hexCode);
+          } catch (e, stack) {
+            debugPrint('Erro ao processar tag: $e\n$stack');
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text('Erro ao ler NFC: $e')));
+          } finally {
+            debugPrint('Finalizando sessão NFC...');
+            await NfcManager.instance.stopSession();
+            setState(() => _isReading = false);
+          }
         },
       );
-    } catch (e) {
+    } catch (e, stack) {
+      debugPrint('Erro geral NFC: $e\n$stack');
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erro: $e')));
-      setState(() {
-        _isReading = false;
-      });
+      await NfcManager.instance.stopSession();
+      setState(() => _isReading = false);
     }
   }
 
@@ -101,6 +126,8 @@ class _NfcConfigScreenState extends State<NfcConfigScreen> {
 
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
+
+    debugPrint('Salvando tag $_tagId para o usuário ${user.id}');
 
     try {
       await Supabase.instance.client
@@ -118,6 +145,7 @@ class _NfcConfigScreenState extends State<NfcConfigScreen> {
         _tagId = null;
       });
     } catch (e) {
+      debugPrint('Erro ao salvar tag: $e');
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(SnackBar(content: Text('Erro ao salvar tag: $e')));
@@ -125,6 +153,7 @@ class _NfcConfigScreenState extends State<NfcConfigScreen> {
   }
 
   Future<void> _reconfigureTag() async {
+    debugPrint('Reconfigurando tag...');
     setState(() {
       _hasTag = false;
       _currentTag = null;

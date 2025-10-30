@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/usuario_service.dart';
 
 class UserRegistrationScreen extends StatefulWidget {
   const UserRegistrationScreen({super.key});
@@ -11,267 +11,172 @@ class UserRegistrationScreen extends StatefulWidget {
 class _UserRegistrationScreenState extends State<UserRegistrationScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _confirmPasswordController = TextEditingController();
-  final _nomeCompletoController = TextEditingController();
-  String _selectedRole = 'Eleitor';
-  bool _isLoading = false;
+  final _senhaController = TextEditingController();
+  final _nomeController = TextEditingController();
+  String _cargo = 'Eleitor';
+  bool _loading = false;
+  String? _mensagem;
 
-  final List<String> _roles = ['Eleitor', 'Administrador'];
+  final UsuarioService _usuarioService = UsuarioService();
 
   @override
   void dispose() {
     _emailController.dispose();
-    _passwordController.dispose();
-    _confirmPasswordController.dispose();
-    _nomeCompletoController.dispose();
+    _senhaController.dispose();
+    _nomeController.dispose();
     super.dispose();
   }
 
-  Future<void> _registerUser() async {
+  Future<void> _adicionarUsuario() async {
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _isLoading = true);
+    setState(() {
+      _loading = true;
+      _mensagem = null;
+    });
 
     try {
-      // Call the Supabase function to create user
-      await Supabase.instance.client.rpc(
-        'criar_utilizador',
-        params: {
-          'p_email': _emailController.text.trim(),
-          'p_password': _passwordController.text,
-          'p_nome_completo': _nomeCompletoController.text.trim(),
-          'p_cargo': _selectedRole.toLowerCase(),
-        },
+      await _usuarioService.adicionarUsuario(
+        email: _emailController.text.trim(),
+        senha: _senhaController.text,
+        nome: _nomeController.text.trim(),
+        cargo: _cargo,
       );
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Utilizador registado com sucesso!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-        Navigator.of(context).pop(); // Return to previous screen
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao registar utilizador: $error'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+      setState(() {
+        _mensagem = 'Usuário registrado com sucesso!';
+      });
+
+      _emailController.clear();
+      _senhaController.clear();
+      _nomeController.clear();
+      setState(() => _cargo = 'Eleitor');
+    } catch (e) {
+      setState(() {
+        _mensagem = 'Erro: ${e.toString()}';
+      });
     } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      setState(() => _loading = false);
     }
   }
 
   String? _validateEmail(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Email é obrigatório';
-    }
-    final emailRegex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
-    if (!emailRegex.hasMatch(value)) {
-      return 'Email inválido';
-    }
+    if (value == null || value.isEmpty) return 'Email é obrigatório';
+    final regex = RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$');
+    if (!regex.hasMatch(value)) return 'Email inválido';
     return null;
   }
 
-  String? _validatePassword(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Password é obrigatória';
-    }
-    if (value.length < 6) {
-      return 'Password deve ter pelo menos 6 caracteres';
-    }
+  String? _validateSenha(String? value) {
+    if (value == null || value.isEmpty) return 'Senha é obrigatória';
+    if (value.length < 6) return 'Senha deve ter ao menos 6 caracteres';
     return null;
   }
 
-  String? _validateConfirmPassword(String? value) {
-    if (value != _passwordController.text) {
-      return 'Passwords não coincidem';
-    }
-    return null;
-  }
-
-  String? _validateNomeCompleto(String? value) {
-    if (value == null || value.isEmpty) {
-      return 'Nome completo é obrigatório';
-    }
-    if (value.length < 2) {
-      return 'Nome deve ter pelo menos 2 caracteres';
-    }
+  String? _validateNome(String? value) {
+    if (value == null || value.isEmpty) return 'Nome completo é obrigatório';
+    if (value.length < 2) return 'Nome muito curto';
     return null;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Registar Novo Utilizador'),
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-      ),
+      appBar: AppBar(title: const Text('Registrar Novo Usuário')),
       body: SingleChildScrollView(
-        padding: const EdgeInsets.all(24.0),
+        padding: const EdgeInsets.all(24),
         child: Form(
           key: _formKey,
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Card(
-                elevation: 4,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(16),
+              // Nome
+              TextFormField(
+                controller: _nomeController,
+                decoration: const InputDecoration(
+                  labelText: 'Nome completo',
+                  prefixIcon: Icon(Icons.person),
                 ),
-                child: Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: Column(
-                    children: [
-                      Icon(
-                        Icons.person_add,
-                        size: 64,
-                        color: Theme.of(context).colorScheme.primary,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Registar Novo Utilizador',
-                        style: Theme.of(
-                          context,
-                        ).textTheme.headlineMedium?.copyWith(
-                          fontWeight: FontWeight.bold,
-                          color: Theme.of(context).colorScheme.primary,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Preencha os dados para criar uma nova conta',
-                        style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                          color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                        textAlign: TextAlign.center,
-                      ),
-                      const SizedBox(height: 32),
+                validator: _validateNome,
+              ),
+              const SizedBox(height: 16),
 
-                      // Nome Completo
-                      TextFormField(
-                        controller: _nomeCompletoController,
-                        decoration: InputDecoration(
-                          labelText: 'Nome Completo',
-                          prefixIcon: const Icon(Icons.person),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        validator: _validateNomeCompleto,
-                        textCapitalization: TextCapitalization.words,
-                      ),
-                      const SizedBox(height: 16),
+              // Email
+              TextFormField(
+                controller: _emailController,
+                decoration: const InputDecoration(
+                  labelText: 'Email',
+                  prefixIcon: Icon(Icons.email),
+                ),
+                validator: _validateEmail,
+              ),
+              const SizedBox(height: 16),
 
-                      // Email
-                      TextFormField(
-                        controller: _emailController,
-                        decoration: InputDecoration(
-                          labelText: 'Email',
-                          prefixIcon: const Icon(Icons.email),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        keyboardType: TextInputType.emailAddress,
-                        validator: _validateEmail,
-                      ),
-                      const SizedBox(height: 16),
+              // Senha
+              TextFormField(
+                controller: _senhaController,
+                decoration: const InputDecoration(
+                  labelText: 'Senha',
+                  prefixIcon: Icon(Icons.lock),
+                ),
+                obscureText: true,
+                validator: _validateSenha,
+              ),
+              const SizedBox(height: 16),
 
-                      // Role Dropdown
-                      DropdownButtonFormField<String>(
-                        value: _selectedRole,
-                        decoration: InputDecoration(
-                          labelText: 'Cargo',
-                          prefixIcon: const Icon(Icons.work),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        items:
-                            _roles.map((role) {
-                              return DropdownMenuItem(
-                                value: role,
-                                child: Text(role),
-                              );
-                            }).toList(),
-                        onChanged: (value) {
-                          setState(() {
-                            _selectedRole = value!;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Password
-                      TextFormField(
-                        controller: _passwordController,
-                        decoration: InputDecoration(
-                          labelText: 'Password',
-                          prefixIcon: const Icon(Icons.lock),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        obscureText: true,
-                        validator: _validatePassword,
-                      ),
-                      const SizedBox(height: 16),
-
-                      // Confirm Password
-                      TextFormField(
-                        controller: _confirmPasswordController,
-                        decoration: InputDecoration(
-                          labelText: 'Confirmar Password',
-                          prefixIcon: const Icon(Icons.lock_outline),
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                        ),
-                        obscureText: true,
-                        validator: _validateConfirmPassword,
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Register Button
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton(
-                          onPressed: _isLoading ? null : _registerUser,
-                          style: ElevatedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          child:
-                              _isLoading
-                                  ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  )
-                                  : const Text(
-                                    'Registar Utilizador',
-                                    style: TextStyle(fontSize: 16),
-                                  ),
-                        ),
-                      ),
-                    ],
+              // Cargo
+              DropdownButtonFormField<String>(
+                value: _cargo,
+                items: const [
+                  DropdownMenuItem(value: 'Eleitor', child: Text('Eleitor')),
+                  DropdownMenuItem(
+                    value: 'Administrador',
+                    child: Text('Administrador'),
                   ),
+                ],
+                onChanged: (v) {
+                  if (v != null) setState(() => _cargo = v);
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Cargo',
+                  prefixIcon: Icon(Icons.work),
                 ),
               ),
+              const SizedBox(height: 24),
+
+              // Botão
+              SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: _loading ? null : _adicionarUsuario,
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  child:
+                      _loading
+                          ? const CircularProgressIndicator(color: Colors.white)
+                          : const Text('Adicionar'),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              // Caixa de mensagem de sucesso/erro
+              if (_mensagem != null)
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  width: double.infinity,
+                  decoration: BoxDecoration(
+                    color:
+                        _mensagem!.startsWith('Erro')
+                            ? Colors.red
+                            : Colors.green,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: SelectableText(
+                    _mensagem!, // texto agora selecionável
+                    style: const TextStyle(color: Colors.white),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
             ],
           ),
         ),

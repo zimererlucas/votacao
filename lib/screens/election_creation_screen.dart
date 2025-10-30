@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+// ignore: unused_import
 import '../models/eleicao.dart';
+// ignore: unused_import
 import '../models/candidato.dart';
 
 class ElectionCreationScreen extends StatefulWidget {
